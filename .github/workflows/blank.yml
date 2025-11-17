@@ -63,26 +63,12 @@ jobs:
             core.info(`  Max issues to scan: ${maxIssues === 0 ? 'All' : maxIssues}`);
             core.info(``);
 
-            // 加载检测脚本
-            const detectionScript = process.env.SPAM_DETECTION_SCRIPT;
-
-            if (!detectionScript) {
-              core.error("SPAM_DETECTION_SCRIPT secret not found!");
-              core.error("The cleanup tool requires the SPAM_DETECTION_SCRIPT secret to be configured.");
-              core.error("Please set up the secret before running cleanup.");
-              core.setFailed("Spam detection not configured");
-              return;
-            }
-
-            // 创建分析函数
-            let analyzeContent;
-
-            try {
-              // 创建模拟的检测函数
-              analyzeContent = async function(content, author, association) {
+            // 创建检测函数 - 修复版本
+            const createAnalyzer = () => {
+              return async (content, author, association) => {
                 const contentLower = content.toLowerCase();
                 
-                // 恶意内容关键词检测
+                // 恶意内容关键词检测 - 包含标题和正文
                 const defamationPatterns = {
                   personalAttacks: [
                     '骗子', '诈骗', '骗钱', '垃圾', '废物', '无耻', '不要脸', '人渣',
@@ -122,6 +108,7 @@ jobs:
                     };
                     
                     score += matches.length * weights[category];
+                    core.info(`检测到 ${category} 类别关键词: ${matches.join(', ')}`);
                   }
                 }
 
@@ -135,6 +122,7 @@ jobs:
                 if (hasClaims && !hasEvidence) {
                   score += 8;
                   detectedPatterns.push('false_claims_without_evidence');
+                  core.info(`检测到无证据指控`);
                 }
 
                 // 检测过度情绪化
@@ -142,11 +130,14 @@ jobs:
                 if (exclamationCount > 3) {
                   score += exclamationCount;
                   detectedPatterns.push('excessive_exclamation');
+                  core.info(`检测到过度情绪化: ${exclamationCount} 个感叹号`);
                 }
 
-                const isSpam = score >= 10 || (score >= 8 && association === 'NONE');
+                // 调试信息
+                core.info(`详细分析: 用户=${author}, 内容长度=${content.length}, 分数=${score}, 模式=${detectedPatterns.join(',')}`);
 
-                core.info(`分析结果: 用户=${author}, 分数=${score}, 垃圾内容=${isSpam}, 模式=${detectedPatterns.join(',')}`);
+                // 决策逻辑 - 降低阈值以便测试
+                const isSpam = score >= 5; // 降低阈值以便测试
 
                 return {
                   isSpam,
@@ -155,15 +146,7 @@ jobs:
                   detectedPatterns
                 };
               };
-
-              core.info("✅ 垃圾检测模块加载成功");
-              core.info("");
-
-            } catch (err) {
-              core.error(`加载检测模块失败: ${err.message}`);
-              core.setFailed(`检测脚本配置错误`);
-              return;
-            }
+            };
 
             let totalScanned = 0;
             let totalSpam = 0;
@@ -171,172 +154,188 @@ jobs:
             let totalDeleted = 0;
             let totalModerated = 0;
 
-            // 扫描开放中的Issue
-            if (scanIssues) {
-              core.info("📝 扫描开放中的Issue...");
-              let page = 1;
-              let openScanned = 0;
+            try {
+              const analyzeContent = createAnalyzer();
+              core.info("✅ 垃圾检测模块加载成功");
 
-              while (maxIssues === 0 || openScanned < maxIssues) {
-                const issues = await github.rest.issues.listForRepo({
-                  owner, repo, state: 'open', per_page: 100, page
-                });
+              // 扫描开放中的Issue
+              if (scanIssues) {
+                core.info("📝 扫描开放中的Issue...");
+                let page = 1;
+                let openScanned = 0;
 
-                if (issues.data.length === 0) break;
+                while (maxIssues === 0 || openScanned < maxIssues) {
+                  const issues = await github.rest.issues.listForRepo({
+                    owner, repo, state: 'open', per_page: 100, page
+                  });
 
-                for (const issue of issues.data) {
-                  if (issue.pull_request) continue;
-                  if (maxIssues > 0 && openScanned >= maxIssues) break;
+                  if (issues.data.length === 0) break;
 
-                  openScanned++;
-                  totalScanned++;
+                  for (const issue of issues.data) {
+                    if (issue.pull_request) continue;
+                    if (maxIssues > 0 && openScanned >= maxIssues) break;
 
-                  const analysis = await analyzeContent(
-                    issue.body || "",
-                    issue.user?.login || "unknown",
-                    issue.author_association || "NONE"
-                  );
+                    openScanned++;
+                    totalScanned++;
 
-                  if (analysis.isSpam) {
-                    totalSpam++;
-                    core.warning(`🚨 [SPAM] Issue #${issue.number} by @${issue.user?.login}`);
-                    core.warning(`   分数: ${analysis.score}, 模式: ${analysis.detectedPatterns.join(', ')}`);
-                    core.warning(`   预览: ${(issue.body || "").substring(0, 150).replace(/\n/g, ' ')}...`);
+                    core.info(`扫描Issue #${issue.number}: "${issue.title}"`);
 
-                    if (!dryRun) {
-                      try {
-                        await github.rest.issues.update({
-                          owner, repo, issue_number: issue.number,
-                          state: "closed", state_reason: "not_planned"
-                        });
-                        await github.rest.issues.createComment({
-                          owner, repo, issue_number: issue.number,
-                          body: `此Issue因检测到不当内容已被自动关闭。\n\n` +
-                                `检测分数: ${analysis.score}\n` +
-                                `检测模式: ${analysis.detectedPatterns.join(', ')}\n\n` +
-                                `如需建设性反馈，请提供具体事实和证据。`
-                        });
-                        totalClosed++;
-                        core.notice(`✅ 已关闭垃圾Issue #${issue.number}`);
-                      } catch (err) {
-                        core.error(`❌ 关闭Issue #${issue.number}失败: ${err.message}`);
+                    // 结合标题和正文进行检测
+                    const fullContent = (issue.title + ' ' + (issue.body || '')).toLowerCase();
+                    
+                    const analysis = await analyzeContent(
+                      fullContent,
+                      issue.user?.login || "unknown",
+                      issue.author_association || "NONE"
+                    );
+
+                    if (analysis.isSpam) {
+                      totalSpam++;
+                      core.warning(`🚨 [SPAM] Issue #${issue.number} by @${issue.user?.login}`);
+                      core.warning(`   标题: ${issue.title}`);
+                      core.warning(`   分数: ${analysis.score}, 模式: ${analysis.detectedPatterns.join(', ')}`);
+                      core.warning(`   预览: ${(issue.body || "").substring(0, 100).replace(/\n/g, ' ')}...`);
+
+                      if (!dryRun) {
+                        try {
+                          await github.rest.issues.update({
+                            owner, repo, issue_number: issue.number,
+                            state: "closed", state_reason: "not_planned"
+                          });
+                          await github.rest.issues.createComment({
+                            owner, repo, issue_number: issue.number,
+                            body: `此Issue因检测到不当内容已被自动关闭。\n\n` +
+                                  `检测分数: ${analysis.score}\n` +
+                                  `检测模式: ${analysis.detectedPatterns.join(', ')}\n\n` +
+                                  `如需建设性反馈，请提供具体事实和证据。`
+                          });
+                          totalClosed++;
+                          core.notice(`✅ 已关闭垃圾Issue #${issue.number}`);
+                        } catch (err) {
+                          core.error(`❌ 关闭Issue #${issue.number}失败: ${err.message}`);
+                        }
+                      } else {
+                        core.notice(`⚠️  [DRY RUN] 检测到垃圾Issue #${issue.number} (未执行操作)`);
                       }
                     } else {
-                      core.notice(`⚠️  [DRY RUN] 检测到垃圾Issue #${issue.number} (未执行操作)`);
+                      core.info(`✅ Issue #${issue.number} 检测为正常内容`);
                     }
                   }
+                  page++;
                 }
-                page++;
+                core.info(`扫描完成: ${openScanned}个开放中的Issue`);
               }
-              core.info(`扫描完成: ${openScanned}个开放中的Issue`);
-            }
 
-            // 扫描已关闭的Issue
-            if (scanClosedIssues) {
-              core.info("📚 扫描已关闭的Issue...");
-              let page = 1;
-              let closedScanned = 0;
+              // 扫描已关闭的Issue
+              if (scanClosedIssues) {
+                core.info("📚 扫描已关闭的Issue...");
+                let page = 1;
+                let closedScanned = 0;
 
-              while (maxIssues === 0 || closedScanned < maxIssues) {
-                const issues = await github.rest.issues.listForRepo({
-                  owner, repo, state: 'closed', per_page: 100, page
-                });
+                while (maxIssues === 0 || closedScanned < maxIssues) {
+                  const issues = await github.rest.issues.listForRepo({
+                    owner, repo, state: 'closed', per_page: 100, page
+                  });
 
-                if (issues.data.length === 0) break;
+                  if (issues.data.length === 0) break;
 
-                for (const issue of issues.data) {
-                  if (issue.pull_request) continue;
-                  if (maxIssues > 0 && closedScanned >= maxIssues) break;
+                  for (const issue of issues.data) {
+                    if (issue.pull_request) continue;
+                    if (maxIssues > 0 && closedScanned >= maxIssues) break;
 
-                  closedScanned++;
-                  totalScanned++;
+                    closedScanned++;
+                    totalScanned++;
 
-                  const analysis = await analyzeContent(
-                    issue.body || "",
-                    issue.user?.login || "unknown",
-                    issue.author_association || "NONE"
-                  );
+                    const fullContent = (issue.title + ' ' + (issue.body || '')).toLowerCase();
+                    const analysis = await analyzeContent(
+                      fullContent,
+                      issue.user?.login || "unknown",
+                      issue.author_association || "NONE"
+                    );
 
-                  if (analysis.isSpam) {
-                    totalSpam++;
-                    core.warning(`🚨 [SPAM] 已关闭Issue #${issue.number} by @${issue.user?.login}`);
-                    core.warning(`   分数: ${analysis.score}, 模式: ${analysis.detectedPatterns.join(', ')}`);
-                    core.warning(`   预览: ${(issue.body || "").substring(0, 150).replace(/\n/g, ' ')}...`);
+                    if (analysis.isSpam) {
+                      totalSpam++;
+                      core.warning(`🚨 [SPAM] 已关闭Issue #${issue.number} by @${issue.user?.login}`);
+                      core.warning(`   分数: ${analysis.score}, 模式: ${analysis.detectedPatterns.join(', ')}`);
 
-                    if (!dryRun) {
-                      try {
-                        // 重写已关闭的垃圾Issue内容
-                        await github.rest.issues.update({
-                          owner, repo, issue_number: issue.number,
-                          title: "[已处理] 内容已移除",
-                          body: "**此内容因违反社区准则已被自动处理。**\n\n" +
-                                "原始内容包含不当言论，现已被隐藏。\n\n" +
-                                "_此操作是在现有内容清理扫描中自动执行的。_"
-                        });
-                        totalModerated++;
-                        core.notice(`✅ 已处理已关闭垃圾Issue #${issue.number}`);
-                      } catch (err) {
-                        core.error(`❌ 处理已关闭Issue #${issue.number}失败: ${err.message}`);
+                      if (!dryRun) {
+                        try {
+                          await github.rest.issues.update({
+                            owner, repo, issue_number: issue.number,
+                            title: "[已处理] 内容已移除",
+                            body: "**此内容因违反社区准则已被自动处理。**\n\n" +
+                                  "原始内容包含不当言论，现已被隐藏。\n\n" +
+                                  "_此操作是在现有内容清理扫描中自动执行的。_"
+                          });
+                          totalModerated++;
+                          core.notice(`✅ 已处理已关闭垃圾Issue #${issue.number}`);
+                        } catch (err) {
+                          core.error(`❌ 处理已关闭Issue #${issue.number}失败: ${err.message}`);
+                        }
+                      } else {
+                        core.notice(`⚠️  [DRY RUN] 检测到已关闭垃圾Issue #${issue.number} (未执行操作)`);
                       }
-                    } else {
-                      core.notice(`⚠️  [DRY RUN] 检测到已关闭垃圾Issue #${issue.number} (未执行操作)`);
                     }
                   }
+                  page++;
                 }
-                page++;
+                core.info(`扫描完成: ${closedScanned}个已关闭的Issue`);
               }
-              core.info(`扫描完成: ${closedScanned}个已关闭的Issue`);
-            }
 
-            // 扫描评论
-            if (scanComments) {
-              core.info("💬 扫描评论...");
-              let page = 1;
-              let commentCount = 0;
+              // 扫描评论
+              if (scanComments) {
+                core.info("💬 扫描评论...");
+                let page = 1;
+                let commentCount = 0;
 
-              while (page <= 10 && (maxIssues === 0 || commentCount < maxIssues)) {
-                const comments = await github.rest.issues.listCommentsForRepo({
-                  owner, repo, per_page: 100, page, sort: 'created', direction: 'desc'
-                });
+                while (page <= 10 && (maxIssues === 0 || commentCount < maxIssues)) {
+                  const comments = await github.rest.issues.listCommentsForRepo({
+                    owner, repo, per_page: 100, page, sort: 'created', direction: 'desc'
+                  });
 
-                if (comments.data.length === 0) break;
+                  if (comments.data.length === 0) break;
 
-                for (const comment of comments.data) {
-                  if (maxIssues > 0 && commentCount >= maxIssues) break;
+                  for (const comment of comments.data) {
+                    if (maxIssues > 0 && commentCount >= maxIssues) break;
 
-                  commentCount++;
-                  totalScanned++;
+                    commentCount++;
+                    totalScanned++;
 
-                  const analysis = await analyzeContent(
-                    comment.body || "",
-                    comment.user?.login || "unknown",
-                    comment.author_association || "NONE"
-                  );
+                    const analysis = await analyzeContent(
+                      comment.body || "",
+                      comment.user?.login || "unknown",
+                      comment.author_association || "NONE"
+                    );
 
-                  if (analysis.isSpam) {
-                    totalSpam++;
-                    core.warning(`🚨 [SPAM] 评论 #${comment.id} by @${comment.user?.login}`);
-                    core.warning(`   分数: ${analysis.score}, 模式: ${analysis.detectedPatterns.join(', ')}`);
-                    core.warning(`   预览: ${(comment.body || "").substring(0, 150).replace(/\n/g, ' ')}...`);
+                    if (analysis.isSpam) {
+                      totalSpam++;
+                      core.warning(`🚨 [SPAM] 评论 #${comment.id} by @${comment.user?.login}`);
+                      core.warning(`   分数: ${analysis.score}, 模式: ${analysis.detectedPatterns.join(', ')}`);
 
-                    if (!dryRun) {
-                      try {
-                        await github.rest.issues.deleteComment({
-                          owner, repo, comment_id: comment.id
-                        });
-                        totalDeleted++;
-                        core.notice(`✅ 已删除垃圾评论 #${comment.id}`);
-                      } catch (err) {
-                        core.error(`❌ 删除评论 #${comment.id}失败: ${err.message}`);
+                      if (!dryRun) {
+                        try {
+                          await github.rest.issues.deleteComment({
+                            owner, repo, comment_id: comment.id
+                          });
+                          totalDeleted++;
+                          core.notice(`✅ 已删除垃圾评论 #${comment.id}`);
+                        } catch (err) {
+                          core.error(`❌ 删除评论 #${comment.id}失败: ${err.message}`);
+                        }
+                      } else {
+                        core.notice(`⚠️  [DRY RUN] 检测到垃圾评论 #${comment.id} (未执行操作)`);
                       }
-                    } else {
-                      core.notice(`⚠️  [DRY RUN] 检测到垃圾评论 #${comment.id} (未执行操作)`);
                     }
                   }
+                  page++;
                 }
-                page++;
+                core.info(`扫描完成: ${commentCount}条评论`);
               }
-              core.info(`扫描完成: ${commentCount}条评论`);
+
+            } catch (err) {
+              core.error(`扫描过程出错: ${err.message}`);
+              core.setFailed(`执行失败`);
+              return;
             }
 
             // 生成总结报告
@@ -344,9 +343,7 @@ jobs:
             core.notice(`📊 清理总结 ${dryRun ? '(干运行模式)' : '(已执行)'}`);
             core.notice("=".repeat(60));
             core.notice(`📝 扫描统计:`);
-            if (scanIssues) core.notice(`   • 开放中的Issue: ${totalScanned}`);
-            if (scanClosedIssues) core.notice(`   • 已关闭的Issue: ${totalScanned}`);
-            if (scanComments) core.notice(`   • 评论: ${totalScanned}`);
+            core.notice(`   • 总计扫描: ${totalScanned}`);
             core.notice(``);
             core.notice(`🚨 检测结果:`);
             core.notice(`   • 发现的垃圾内容: ${totalSpam}`);
