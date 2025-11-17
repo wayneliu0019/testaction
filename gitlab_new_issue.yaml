@@ -1,0 +1,157 @@
+swagger: '2.0'
+info:
+  title: GitLab API
+  description: GitLab REST API
+  version: '1.0.0'
+host: 'git-devops.opencsg.com'
+basePath: '/api/v4'
+schemes:
+- https
+securityDefinitions:
+  PrivateToken:
+    type: apiKey
+    name: PRIVATE-TOKEN
+    in: header
+security:
+  - PrivateToken: []
+paths:
+  '/projects/{id}/issues':
+    post:
+      summary: 创建项目问题
+      description: 在指定项目中创建一个新的问题
+      parameters:
+        - name: id
+          in: path
+          description: 项目的全局ID或URL编码路径
+          required: true
+          type: integer
+        - name: body
+          in: body
+          required: true
+          schema:
+            $ref: '#/definitions/IssueCreateRequest'
+      responses:
+        '201':
+          description: 成功创建问题
+          schema:
+            $ref: '#/definitions/Issue'
+        '400':
+          description: 请求参数错误
+        '401':
+          description: 未授权
+        '404':
+          description: 项目未找到
+definitions:
+  IssueCreateRequest:
+    type: object
+    required:
+      - title
+    properties:
+      title:
+        type: string
+        description: 问题的标题
+      assignee_id:
+        type: integer
+        description: 分配问题给用户的ID。仅在GitLab Free版本中显示
+      assignee_ids:
+        type: array
+        items:
+          type: integer
+        description: 分配问题给多个用户的ID数组。仅适用于Premium和Ultimate版本
+      confidential:
+        type: boolean
+        description: 设置问题为机密。默认为false
+      created_at:
+        type: string
+        format: date-time
+        description: 问题创建时间。ISO 8601格式的日期时间字符串，例如2016-03-11T03:45:40Z。需要管理员或项目/组所有者权限
+      description:
+        type: string
+        description: 问题的描述。限制为1,048,576个字符
+      discussion_to_resolve:
+        type: string
+        description: 要解决的讨论的ID。这将使用默认描述填充问题并将讨论标记为已解决。与merge_request_to_resolve_discussions_of结合使用
+      due_date:
+        type: string
+        format: date
+        description: 截止日期。YYYY-MM-DD格式的日期字符串，例如2016-03-11
+      epic_id:
+        type: integer
+        description: 要将问题添加到的epic的ID。有效值大于或等于0。仅适用于Premium和Ultimate版本
+      epic_iid:
+        type: integer
+        description: 要将问题添加到的epic的IID。有效值大于或等于0。(已弃用，计划在API版本5中移除)。仅适用于Premium和Ultimate版本
+      iid:
+        type: string
+        description: 项目问题的内部ID(需要管理员或项目所有者权限)
+      issue_type:
+        type: string
+        enum: [issue, incident, test_case, task]
+        description: 问题的类型。可选值为issue、incident、test_case或task。默认为issue
+      labels:
+        type: string
+        description: 逗号分隔的标签名称，用于分配给新问题。如果标签不存在，将创建新的项目标签并分配给问题
+      merge_request_to_resolve_discussions_of:
+        type: integer
+        description: 要解决所有问题的合并请求的IID。这将使用默认描述填充问题并将所有讨论标记为已解决
+      milestone_id:
+        type: integer
+        description: 要分配给问题的里程碑的全局ID
+      weight:
+        type: integer
+        description: 问题的权重。有效值大于或等于0。仅适用于Premium和Ultimate版本
+  Issue:
+    type: object
+    properties:
+      id:
+        type: integer
+        description: 问题的ID
+      iid:
+        type: integer
+        description: 项目内问题的ID
+      project_id:
+        type: integer
+        description: 问题所属项目的ID
+      title:
+        type: string
+        description: 问题的标题
+      description:
+        type: string
+        description: 问题的描述
+      state:
+        type: string
+        description: 问题的状态
+      created_at:
+        type: string
+        format: date-time
+        description: 问题创建时间
+      updated_at:
+        type: string
+        format: date-time
+        description: 问题更新时间
+      labels:
+        type: array
+        items:
+          type: string
+        description: 问题的标签
+      milestone:
+        type: object
+        description: 问题的里程碑信息
+      assignees:
+        type: array
+        items:
+          type: object
+        description: 问题的受理人列表
+      author:
+        type: object
+        description: 问题的创建者
+      confidential:
+        type: boolean
+        description: 问题是否为机密
+      due_date:
+        type: string
+        format: date
+        description: 问题的截止日期
+      web_url:
+        type: string
+        description: 问题的Web URL
