@@ -113,31 +113,31 @@ jobs:
                 }
 
                 // 检测无证据的虚假指控
-                const claimIndicators = ['声称', '据说', '听说', 'allegedly', 'claimed'];
-                const evidenceIndicators = ['证据', '证明', '截图', '链接', 'evidence', 'proof'];
+                # const claimIndicators = ['声称', '据说', '听说', 'allegedly', 'claimed'];
+                # const evidenceIndicators = ['证据', '证明', '截图', '链接', 'evidence', 'proof'];
                 
-                const hasClaims = claimIndicators.some(indicator => content.includes(indicator));
-                const hasEvidence = evidenceIndicators.some(indicator => content.includes(indicator));
+                # const hasClaims = claimIndicators.some(indicator => content.includes(indicator));
+                # const hasEvidence = evidenceIndicators.some(indicator => content.includes(indicator));
                 
-                if (hasClaims && !hasEvidence) {
-                  score += 8;
-                  detectedPatterns.push('false_claims_without_evidence');
-                  core.info(`检测到无证据指控`);
-                }
+                # if (hasClaims && !hasEvidence) {
+                #   score += 8;
+                #   detectedPatterns.push('false_claims_without_evidence');
+                #   core.info(`检测到无证据指控`);
+                # }
 
-                // 检测过度情绪化
-                const exclamationCount = (content.match(/!/g) || []).length;
-                if (exclamationCount > 3) {
-                  score += exclamationCount;
-                  detectedPatterns.push('excessive_exclamation');
-                  core.info(`检测到过度情绪化: ${exclamationCount} 个感叹号`);
-                }
+                // 检测过度情绪化（判断感叹号数量）
+                # const exclamationCount = (content.match(/!/g) || []).length;
+                # if (exclamationCount > 3) {
+                #   score += exclamationCount;
+                #   detectedPatterns.push('excessive_exclamation');
+                #   core.info(`检测到过度情绪化: ${exclamationCount} 个感叹号`);
+                # }
 
                 // 调试信息
                 core.info(`详细分析: 用户=${author}, 内容长度=${content.length}, 分数=${score}, 模式=${detectedPatterns.join(',')}`);
 
                 // 决策逻辑 - 降低阈值以便测试
-                const isSpam = score >= 5; // 降低阈值以便测试
+                const isSpam = score >= 10; 
 
                 return {
                   isSpam,
