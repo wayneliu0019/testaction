@@ -88,7 +88,7 @@ if __name__ == "__main__":
         
         if check_violation(content_to_check):
             print("判定结果：Issue 违规。执行回复并关闭操作。")
-            reply_msg = "您好，感谢您的关注。本项目欢迎对代码、架构和技术本身进行深入探讨。但由于您的 Issue 涉及与技术无关的争议内容（如 Star 数讨论、不当言辞等），为保持开源社区的专业和整洁，该 Issue 将予以自动关闭。感谢理解。"
+            reply_msg = "您好，感谢您的关注。本项目欢迎对代码、架构和技术本身进行深入探讨。但由于您的 Issue 涉及与技术无关的争议内容（如辱骂、不当言辞等），为保持开源社区的专业和整洁，该 Issue 将予以自动关闭。感谢理解。"
             add_comment(repo, issue_number, gh_token, reply_msg)
             close_issue(repo, issue_number, gh_token)
         else:
@@ -102,7 +102,7 @@ if __name__ == "__main__":
         
         if check_violation(content_to_check):
             print("判定结果：Comment 违规。执行回复并删除评论操作。")
-            reply_msg = "您好，感谢您的关注。由于您刚刚发布的评论涉及与技术探讨无关的争议内容（如 Star 数讨论、不当言辞等），为保持社区环境的专业和整洁，系统已自动将其清理。希望大家聚焦技术交流，感谢理解。"
+            reply_msg = "您好，感谢您的关注。由于您刚刚发布的评论涉及与技术探讨无关的争议内容（如辱骂、不当言辞等），为保持社区环境的专业和整洁，系统已自动将其清理。希望大家聚焦技术交流，感谢理解。"
             add_comment(repo, issue_number, gh_token, reply_msg)
             delete_comment(repo, comment_id, gh_token)
         else:
