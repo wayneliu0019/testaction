@@ -90,7 +90,7 @@ if __name__ == "__main__":
         # handle new Issue
         title = os.environ.get("ISSUE_TITLE", "")
         body = os.environ.get("ISSUE_BODY", "")
-         content_to_check = f"{title} {body}"
+        content_to_check = f"{title} {body}"
         
         if check_violation(content_to_check):
             print("判定结果：Issue 违规。准备执行回复并关闭操作。")
