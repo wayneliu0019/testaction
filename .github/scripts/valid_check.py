@@ -90,12 +90,12 @@ if __name__ == "__main__":
         # handle new Issue
         title = os.environ.get("ISSUE_TITLE", "")
         body = os.environ.get("ISSUE_BODY", "")
+         content_to_check = f"{title} {body}"
         
         if check_violation(content_to_check):
             print("判定结果：Issue 违规。准备执行回复并关闭操作。")
             
             # Determine the language and select a reply template.
-            content_to_check = f"{title} {body}"
             if is_chinese(content_to_check):
                 reply_msg = "您好，感谢您的关注。本项目欢迎对代码、架构和技术本身进行深入探讨。但由于您的 Issue 涉及与技术无关的争议内容（如辱骂、不当言辞等），为保持开源社区的专业和整洁，该 Issue 将予以自动关闭。感谢理解。"
             else:
@@ -115,7 +115,7 @@ if __name__ == "__main__":
             print("判定结果：Comment 违规。准备执行回复并删除评论操作。")
             
             # 判断语言并选择回复模板
-            if is_chinese(content_to_check):
+            if is_chinese(comment_body):
                 reply_msg = "您好，感谢您的关注。由于您刚刚发布的评论涉及与技术探讨无关的争议内容（如辱骂、不当言辞等），为保持社区环境的专业和整洁，系统已自动将其清理。希望大家聚焦技术交流，感谢理解。"
             else:
                 reply_msg = "Hello, thank you for your interest. Because your recent comment involves non-technical controversial content (such as inappropriate language, etc.), it has been automatically removed to maintain a professional and clean community environment. We hope everyone can focus on technical exchanges. Thank you for your understanding."
